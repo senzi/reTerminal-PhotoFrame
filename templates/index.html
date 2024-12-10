@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Photo Frame</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background: black;
+            overflow: hidden;
+        }
+        #photo-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+        .photo {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            position: absolute;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+        }
+        .photo.active {
+            opacity: 1;
+        }
+        .nav-button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            border: none;
+            padding: 20px;
+            cursor: pointer;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #photo-container:hover .nav-button {
+            opacity: 1;
+        }
+        #prev-button { left: 0; }
+        #next-button { right: 0; }
+        .touch-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+    <div id="photo-container">
+        <div class="touch-overlay"></div>
+        <button id="prev-button" class="nav-button">❮</button>
+        <button id="next-button" class="nav-button">❯</button>
+    </div>
+
+    <script>
+        let config = {{ config|tojson|safe }};
+        let photos = [];
+        let currentIndex = 0;
+        let slideshowInterval = null;
+        let touchStartX = 0;
+        let container = document.getElementById('photo-container');
+        let lastConfigCheck = 0;
+        let lastPhotoCheck = 0;
+
+        // 自动进入全屏
+        function enterFullscreen() {
+            const element = document.documentElement;
+            if (element.requestFullscreen) {
+                element.requestFullscreen();
+            } else if (element.webkitRequestFullscreen) {
+                element.webkitRequestFullscreen();
+            } else if (element.msRequestFullscreen) {
+                element.msRequestFullscreen();
+            }
+        }
+
+        // 页面加载完成后自动进入全屏
+        document.addEventListener('DOMContentLoaded', () => {
+            enterFullscreen();
+        });
+
+        // 检查配置更新
+        async function checkConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const newConfig = await response.json();
+                const configStr = JSON.stringify(newConfig);
+                
+                if (JSON.stringify(config) !== configStr) {
+                    config = newConfig;
+                    if (slideshowInterval) {
+                        clearInterval(slideshowInterval);
+                    }
+                    if (config.slideshow_enabled) {
+                        startSlideshow();
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking config:', error);
+            }
+        }
+
+        // 定期检查照片更新
+        async function checkPhotos() {
+            try {
+                const response = await fetch('/api/photos');
+                const newPhotos = await response.json();
+                const photosStr = JSON.stringify(newPhotos);
+                
+                if (JSON.stringify(photos) !== photosStr) {
+                    const oldLength = photos.length;
+                    photos = newPhotos;
+                    
+                    // 如果是第一次加载或照片被删除，重置索引
+                    if (oldLength === 0 || currentIndex >= photos.length) {
+                        currentIndex = 0;
+                    }
+                    
+                    if (photos.length > 0) {
+                        showPhoto(currentIndex);
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking photos:', error);
+            }
+        }
+
+        async function loadPhotos() {
+            await checkPhotos();
+            if (photos.length > 0) {
+                showPhoto(0);
+                if (config.slideshow_enabled) {
+                    startSlideshow();
+                }
+            }
+        }
+
+        function showPhoto(index) {
+            const existingPhotos = document.querySelectorAll('.photo');
+            existingPhotos.forEach(photo => {
+                if (!photo.classList.contains('active')) {
+                    photo.remove();
+                }
+            });
+
+            const activePhoto = document.querySelector('.photo.active');
+            const newPhoto = document.createElement('img');
+            newPhoto.src = `/static/photos/${photos[index]}?t=${Date.now()}`; // 添加时间戳防止缓存
+            newPhoto.classList.add('photo');
+            container.insertBefore(newPhoto, container.firstChild);
+
+            setTimeout(() => {
+                if (activePhoto) {
+                    activePhoto.classList.remove('active');
+                    setTimeout(() => activePhoto.remove(), 1000);
+                }
+                newPhoto.classList.add('active');
+            }, 50);
+
+            currentIndex = index;
+        }
+
+        function nextPhoto() {
+            const nextIndex = (currentIndex + 1) % photos.length;
+            showPhoto(nextIndex);
+        }
+
+        function prevPhoto() {
+            const prevIndex = (currentIndex - 1 + photos.length) % photos.length;
+            showPhoto(prevIndex);
+        }
+
+        function startSlideshow() {
+            if (slideshowInterval) {
+                clearInterval(slideshowInterval);
+            }
+            slideshowInterval = setInterval(nextPhoto, config.slideshow_interval * 1000);
+        }
+
+        // 触摸事件
+        const overlay = document.querySelector('.touch-overlay');
+        overlay.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+        });
+
+        overlay.addEventListener('touchend', (e) => {
+            const touchEndX = e.changedTouches[0].clientX;
+            const diff = touchStartX - touchEndX;
+
+            if (Math.abs(diff) > 50) {
+                if (diff > 0) {
+                    nextPhoto();
+                } else {
+                    prevPhoto();
+                }
+            }
+        });
+
+        // 按钮事件
+        document.getElementById('prev-button').addEventListener('click', prevPhoto);
+        document.getElementById('next-button').addEventListener('click', nextPhoto);
+
+        // 定期检查更新
+        setInterval(checkConfig, 1000); // 每秒检查配置
+        setInterval(checkPhotos, 1000); // 每秒检查照片
+
+        // 加载照片
+        loadPhotos();
+
+        // 防止退出全屏
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F11') {
+                e.preventDefault();
+            }
+        });
+
+        // 监听全屏变化，如果退出全屏则重新进入
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                enterFullscreen();
+            }
+        });
+    </script>
+</body>
+</html>
