@@ -1,5 +1,5 @@
 import os
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 from natsort import natsorted
 import json
@@ -8,8 +8,8 @@ import hashlib
 import time
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'static/photos'
-app.config['THUMBNAIL_FOLDER'] = 'static/thumbnails'
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/photos')
+app.config['THUMBNAIL_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static/thumbnails')
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['THUMBNAIL_SIZE'] = (200, 200)  # 缩略图尺寸
 
@@ -103,20 +103,12 @@ def admin():
 
 @app.route('/api/photos')
 def list_photos():
-    if not os.path.exists(app.config['UPLOAD_FOLDER']):
-        return jsonify([])
-    
-    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif'}
-    photos = [f for f in os.listdir(app.config['UPLOAD_FOLDER'])
-             if os.path.splitext(f)[1].lower() in allowed_extensions]
-    
-    # 获取每张照片的信息（包括缩略图）
-    photo_list = []
-    for filename in natsorted(photos):
-        photo_info = get_photo_info(filename)
-        photo_list.append(photo_info)
-    
-    return jsonify(photo_list)
+    """获取照片列表"""
+    photos = get_photos()
+    return jsonify([{
+        'filename': photo,
+        'url': url_for('serve_photo', filename=photo, _external=True)
+    } for photo in photos])
 
 @app.route('/api/upload', methods=['POST'])
 def upload_photo():
@@ -196,6 +188,16 @@ def handle_config():
     
     save_config(config)
     return jsonify(config)
+
+@app.route('/static/photos/<path:filename>')
+def serve_photo(filename):
+    """提供照片文件"""
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/static/thumbnails/<path:filename>')
+def serve_thumbnail(filename):
+    """提供缩略图文件"""
+    return send_from_directory(app.config['THUMBNAIL_FOLDER'], filename)
 
 if __name__ == '__main__':
     # Initialize config file if it doesn't exist

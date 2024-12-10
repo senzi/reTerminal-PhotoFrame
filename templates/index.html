@@ -160,7 +160,7 @@
 
             const activePhoto = document.querySelector('.photo.active');
             const newPhoto = document.createElement('img');
-            newPhoto.src = `/static/photos/${photos[index]}?t=${Date.now()}`; // 添加时间戳防止缓存
+            newPhoto.src = `/static/photos/${photos[index].filename}?t=${Date.now()}`; 
             newPhoto.classList.add('photo');
             container.insertBefore(newPhoto, container.firstChild);
 
